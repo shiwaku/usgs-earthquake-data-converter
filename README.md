@@ -1,5 +1,7 @@
 # usgs-earthquake-data-converter
 
+[![Demo](https://img.shields.io/badge/demo-世界の震源マップ-2a78d6)](https://shiwaku.github.io/usgs-earthquake-data-converter/)
+
 USGS（ANSS ComCat）の全球震源データを FDSN Event Web Service から取得し、GISデータ（CSV / GeoParquet / PMTiles / MLT）へ変換して、MapLibre GL JS のビューワで**地球儀（globe）表示**するためのリポジトリです。
 
 日本域を扱う姉妹リポジトリ [jma-earthquake-data-converter](https://github.com/shiwaku/jma-earthquake-data-converter)（気象庁 地震月報(カタログ編)）の全球版にあたります。変換の流れとビューワの構成は基本的にそちらに合わせてあります。
