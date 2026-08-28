@@ -286,8 +286,14 @@ export class PointCloudLayer implements CustomLayerInterface {
     gl.uniform1i(gl.getUniformLocation(program, 'u_picking'), 1)
     // 点は小さいので、当たり判定のときだけ大きく描く
     gl.uniform1f(gl.getUniformLocation(program, 'u_size'), (this.size + 4) * ratio)
+    // MapLibreが直前の描画で残した状態を明示的に落とす。とくに scissor と stencil は
+    // タイルの切り抜きに使われており、そのままだと描いた点が丸ごと捨てられる。
     gl.disable(gl.BLEND)
     gl.disable(gl.DEPTH_TEST)
+    gl.disable(gl.SCISSOR_TEST)
+    gl.disable(gl.STENCIL_TEST)
+    gl.disable(gl.CULL_FACE)
+    gl.colorMask(true, true, true, true)
     gl.bindVertexArray(this.vao)
     gl.drawArrays(gl.POINTS, 0, this.count)
     gl.bindVertexArray(null)
