@@ -99,7 +99,7 @@ export function readUrlState(): Partial<AppState> {
   if (theme === 'dark' || theme === 'light') state.theme = theme
 
   const basemap = params.get(BASEMAP)
-  if (basemap === 'pale' || basemap === 'photo') state.basemap = basemap as Basemap
+  if (basemap === 'map' || basemap === 'satellite') state.basemap = basemap as Basemap
 
   const layers = params.get(LAYERS_KEY)
   if (layers !== null) state.layers = parseLayers(layers)

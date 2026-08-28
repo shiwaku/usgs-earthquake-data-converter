@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
-  <title>気象庁 震源マップ</title>
-  <meta name="description" content="気象庁 地震月報(カタログ編) の震源データ（1919〜2023年・約508万件）を深さ方向に配置して立体表示するビューワ" />
+  <title>世界の震源マップ</title>
+  <meta name="description" content="USGS(ANSS ComCat) の全球の震源データ（1967年〜・M2.5以上）を地球儀の上に深さ方向へ配置して立体表示するビューワ" />
   <meta name="theme-color" content="#2a78d6" />
   <link rel="icon" href="./icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="./icon-192.png" />
@@ -19,7 +19,7 @@
     <header class="panel-head">
       <div class="brand">
         <span class="brand-mark" aria-hidden="true">🌏</span>
-        <h1>気象庁 震源マップ<br /><span class="brand-sub">1919年〜2023年</span></h1>
+        <h1>世界の震源マップ<br /><span class="brand-sub">USGS 1967年〜・M2.5以上</span></h1>
       </div>
       <div class="head-actions">
         <button id="share-btn" class="icon-btn" type="button" title="この画面のURLをコピー" aria-label="この画面のURLをコピー">🔗</button>
@@ -40,7 +40,7 @@
         <div class="field-head">
           <span class="field-label">震源の深さ</span>
         </div>
-        <p class="depth3d-note">震源は深さ方向にも配置しています。地図を傾けると立体に見え、深さの凡例が出ます。右クリックのドラッグ、または Ctrl キーを押しながらのドラッグで傾けられます。</p>
+        <p class="depth3d-note">震源は深さ方向にも配置しています。地球儀を傾けると立体に見えます。右クリックのドラッグ、または Ctrl キーを押しながらのドラッグで傾けられます。</p>
       </div>
 
       <div class="field">
@@ -52,10 +52,9 @@
     </div>
 
     <footer class="panel-foot">
-      震度データ・震源データ: <a href="https://www.data.jma.go.jp/eqev/data/bulletin/shindo.html" target="_blank" rel="noopener">気象庁 地震月報(カタログ編)</a><br />
-      人口集中地区: <a href="https://www.e-stat.go.jp/gis" target="_blank" rel="noopener">政府統計の総合窓口（e-Stat）</a><br />
-      背景: 国土地理院 最適化ベクトルタイル / 全国最新写真<br />
-      <a href="https://github.com/shiwaku/jma-earthquake-data-converter" target="_blank" rel="noopener">GitHub</a>
+      震源データ: <a href="https://earthquake.usgs.gov/" target="_blank" rel="noopener">USGS Earthquake Hazards Program</a>（ANSS ComCat）<br />
+      背景: <a href="https://openfreemap.org/" target="_blank" rel="noopener">OpenFreeMap</a> / OpenStreetMap contributors、衛星画像: Esri<br />
+      <a href="https://github.com/shiwaku/usgs-earthquake-data-converter" target="_blank" rel="noopener">GitHub</a>
       <span id="build-ver" class="build-ver"></span>
     </footer>
   </section>
@@ -65,21 +64,6 @@
     <div class="dl-bar"></div>
     <div class="dl-ticks"></div>
   </div>
-
-  <!-- 地震の選択はパネルの外に常設する。パネルを畳んでも切り替えられるようにするため
-       （スマホではパネルが初期状態で畳まれる）。 -->
-  <section id="eventbar" class="eventbar" aria-label="地震の選択">
-    <div id="event-current" class="event-current" aria-live="polite" hidden></div>
-    <div class="eb-search">
-      <input id="event-q" type="search" class="event-q" autocomplete="off"
-        placeholder="震央地名・年月日・M・震度で検索" aria-label="地震を検索"
-        role="combobox" aria-expanded="false" aria-controls="event-list" />
-      <div id="event-pop" class="event-pop" hidden>
-        <p id="event-status" class="event-status" role="status"></p>
-        <ul id="event-list" class="event-list"></ul>
-      </div>
-    </div>
-  </section>
 
   <script type="module" src="/src/main.ts"></script>
 </body>

@@ -1,7 +1,6 @@
 import type { Map as MapLibreMap, Point } from 'maplibre-gl'
 
 import { activePickIds } from './dataLayers'
-import type { Hypocenter3dPicker } from './hypocenter3d'
 import { layerByPickId } from './layers/registry'
 import type { AppStore } from '../state'
 
@@ -9,11 +8,10 @@ import type { AppStore } from '../state'
  * クリックで地物を選択し、ホバーでカーソルを変える。
  * 選択そのものは store に入れるだけで、描くのはポップアップ側の仕事。
  *
- * 当たり判定は2系統ある。地表に描かれるレイヤーはMapLibreに、
- * 深さ方向へ配置した震源の点は deck.gl（picker）に問い合わせる。
- * 見えている点を狙ってクリックするのだから、立体表示の点を先に見る。
+ * 当たり判定は地表のレイヤー（不可視の円）だけで行う。深さ方向に配置した
+ * 点そのものは拾えないため、深い地震ではクリック位置とポップアップがずれる。
  */
-export function createInteractions(map: MapLibreMap, store: AppStore, picker: Hypocenter3dPicker): void {
+export function createInteractions(map: MapLibreMap, store: AppStore): void {
   // ホバーのカーソルはマウス環境だけ。タッチでは意味がないうえ、
   // mousemove がタップのたびに走ってしまう。
   if (window.matchMedia('(hover: hover)').matches) {
@@ -28,7 +26,7 @@ export function createInteractions(map: MapLibreMap, store: AppStore, picker: Hy
       const ids = activePickIds(map, store.get())
       const hit =
         (ids.length > 0 && map.queryRenderedFeatures(last, { layers: ids }).length > 0) ||
-        picker.hitTest(last.x, last.y)
+        false
       map.getCanvas().style.cursor = hit ? 'pointer' : ''
     }
 
@@ -41,11 +39,6 @@ export function createInteractions(map: MapLibreMap, store: AppStore, picker: Hy
   }
 
   map.on('click', (e) => {
-    const hit3d = picker.pick(e.point.x, e.point.y)
-    if (hit3d) {
-      store.set({ selection: hit3d })
-      return
-    }
     const ids = activePickIds(map, store.get())
     const feats = ids.length ? map.queryRenderedFeatures(e.point, { layers: ids }) : []
     if (!feats.length) {

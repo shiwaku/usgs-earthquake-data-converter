@@ -23,26 +23,7 @@ import { getBasemapStyle } from './basemap'
 setWorkerUrl(workerUrl)
 
 const ATTRIBUTION =
-  '<a href="https://www.data.jma.go.jp/eqev/data/bulletin/shindo.html" target="_blank" rel="noreferrer">気象庁 地震月報(カタログ編)</a>'
-
-/**
- * deck.gl（@deck.gl/mapbox）との互換のため map.transform を生やす。
- *
- * deck.gl の getViewport は `map.transform.height` を読んでニアクリップ面を正規化する。
- * maplibre 6 で transform が `map._camera.transform` へ移ったため、そのままでは
- * interleaved 描画が「Cannot read properties of undefined (reading 'height')」で落ちる。
- *
- * deck.gl が transform を触るのはここと地形使用時だけで、いずれも読み取りのみ。
- * 別名を用意すれば足りる。maplibre 側が公開APIに戻すか deck.gl 側が追随したら外す。
- */
-function exposeTransform(map: MapLibreMap): void {
-  const m = map as unknown as { transform?: unknown; _camera?: { transform?: unknown } }
-  if (m.transform || !m._camera?.transform) return
-  Object.defineProperty(map, 'transform', {
-    get: () => (map as unknown as { _camera: { transform: unknown } })._camera.transform,
-    configurable: true,
-  })
-}
+  '<a href="https://earthquake.usgs.gov/" target="_blank" rel="noreferrer">USGS Earthquake Hazards Program</a>'
 
 export function createMap(container: string, state: AppState): MapLibreMap {
   const protocol = new Protocol()
@@ -51,12 +32,12 @@ export function createMap(container: string, state: AppState): MapLibreMap {
   const map = new MapLibreMap({
     container,
     style: getBasemapStyle(state.basemap, state.theme),
-    center: [134.8, 32.365],
-    // 傾けた分だけ遠くまで写るため、真上から見るときより1段寄せる。
-    zoom: 5.25,
-    // 初期状態から傾けておく。このビューワの主役は震源の深さ方向の分布で、
-    // 真上からでは沈み込み帯の形が見えないため。
-    pitch: 61,
+    // 全球版なので地球全体が入る位置から始める。環太平洋の火山帯が正面に来るよう
+    // 太平洋側を中心に置く。
+    center: [150, 10],
+    zoom: 1.6,
+    // 傾きは付けない。真上から地球儀を見せてから、利用者が傾けて深さを見る。
+    pitch: 0,
     // 既定の上限は60。震源の深さを断面のように見るには浅すぎるので上げる。
     // maplibre は 60 超を experimental としているが、地形を使っていないので影響は小さい。
     maxPitch: 85,
@@ -70,7 +51,9 @@ export function createMap(container: string, state: AppState): MapLibreMap {
     pixelRatio: isMobile ? Math.min(window.devicePixelRatio || 1, 2) : undefined,
   })
 
-  exposeTransform(map)
+  // 全球表示。MapLibreの標準機能で、傾けても震源の点群（map/pointCloudLayer.ts）が
+  // 追従する。スタイルを差し替えると戻ってしまうので、その都度かけ直す。
+  map.on('style.load', () => map.setProjection({ type: 'globe' }))
 
   map.addControl(new NavigationControl({ visualizePitch: true }), 'top-right')
   map.addControl(new FullscreenControl(), 'top-right')

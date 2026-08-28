@@ -72,8 +72,8 @@ export function depthColorExpression(): ExpressionSpecification {
   const stops = DEPTH_STOPS.flatMap(([depth, color]) => [depth, hex(color)])
   return [
     'case',
-    ['has', '深さ(km)'],
-    ['interpolate', ['linear'], ['to-number', ['get', '深さ(km)'], 0], ...stops],
+    ['has', 'depth'],
+    ['interpolate', ['linear'], ['to-number', ['get', 'depth'], 0], ...stops],
     UNKNOWN_DEPTH,
   ] as unknown as ExpressionSpecification
 }

@@ -3,8 +3,8 @@ import type { Basemap } from '../map/basemap'
 import type { AppStore } from '../state'
 
 const CHOICES: [Basemap, string][] = [
-  ['pale', '地図'],
-  ['photo', '写真'],
+  ['map', '地図'],
+  ['satellite', '衛星'],
 ]
 
 /** 背景地図スイッチャー（右下）。 */

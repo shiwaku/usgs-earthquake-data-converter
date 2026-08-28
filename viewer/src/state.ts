@@ -56,13 +56,13 @@ export function createAppStore(initial: Partial<AppState> = {}): AppStore {
   const store = createStore<AppState>({
     eventId: null,
     theme: savedTheme(),
-    basemap: 'pale',
+    basemap: 'map',
     layers: defaultLayers(),
     selection: null,
     // 震源は常に深さ方向へ配置する。傾ければそのまま立体に見える。
     depth3d: true,
-    // 初期カメラを傾けてあるので、減光も最初から効かせる。
-    basemapDim: true,
+    // 初期は真上から。傾けたときに減光が効く。
+    basemapDim: false,
     ...initial,
   })
 

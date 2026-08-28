@@ -4,10 +4,9 @@
 import 'maplibre-gl/dist/maplibre-gl.css'
 import './style.css'
 
-import { createUrlState, hasMapInUrl, migrateLegacyHash, readUrlState } from './lib/urlState'
+import { createUrlState, migrateLegacyHash, readUrlState } from './lib/urlState'
 import { createBasemapDim } from './map/basemapDim'
 import { createDataLayers } from './map/dataLayers'
-import { createEventCamera } from './map/eventCamera'
 import { createHypocenter3d } from './map/hypocenter3d'
 import { createInteractions } from './map/interactions'
 import { createPopup } from './map/popup'
@@ -15,7 +14,6 @@ import { createMap } from './map/createMap'
 import { createAppStore } from './state'
 import { createBasemapSwitch } from './ui/basemapSwitch'
 import { createDatasetInfo } from './ui/datasetInfo'
-import { createEventSearch } from './ui/eventSearch'
 import { createDepth3dAuto } from './ui/depth3dAuto'
 import { createLayerPanel } from './ui/layerPanel'
 import { createPanel } from './ui/panel'
@@ -25,26 +23,19 @@ import { createThemeToggle } from './ui/themeToggle'
 // 旧形式（`#5.25/32.365/134.8/0/61`）のリンクを名前付きへ直す。地図を作る前に行う。
 migrateLegacyHash()
 
-// 地図の位置はMapLibreの hash が握る。createMap を通すと即座に書き込まれるため、
-// 「利用者がURLで位置を指定して来たか」はその前に見ておく必要がある。
-const hasInitialHash = hasMapInUrl()
-
 // 状態はstoreに1本化する。UIも地図もこれを購読するだけで、互いを直接書き換えない。
 // URLに入っている分だけ初期値を上書きする。
 const store = createAppStore(readUrlState())
 const map = createMap('map', store.get())
 
 createDataLayers(map, store)
-createEventCamera(map, store, hasInitialHash)
-// 震源の点はクリック判定も持つ。interactions はその口を受け取る。
-const hypocenter3d = createHypocenter3d(map, store)
-createInteractions(map, store, hypocenter3d)
+createInteractions(map, store)
+createHypocenter3d(map, store)
 createBasemapDim(map, store)
 createPopup(map, store)
 createBasemapSwitch(map, store)
 createThemeToggle(store)
 createPanel()
-createEventSearch(store)
 createLayerPanel(store)
 createDepth3dAuto(map, store)
 createDatasetInfo()

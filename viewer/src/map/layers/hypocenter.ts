@@ -1,112 +1,110 @@
-import type { ExpressionSpecification, FilterSpecification, LayerSpecification } from 'maplibre-gl'
-import { GLYPH_FONT } from '../basemap'
+import type { LayerSpecification } from 'maplibre-gl'
+
 import { mltTileUrl } from '../../lib/pmtiles'
 import { coordFooter, esc, prop, row } from '../../lib/format'
-import type { LayerModule, PaintContext, RenderContext } from './types'
+import { depthLegendCss, depthLegendTicks } from './depthScale'
+import type { LayerModule } from './types'
 
 const KEY = 'hypocenter'
-const CROSS_ID = `${KEY}-cross`
-
-const CROSS_COLOR = 'rgb(255, 0, 0)'
-const HALO_COLOR = 'rgb(255, 255, 0)'
 
 /**
- * 深さ(km) → 高さ(m)。震源は地下にあるので負。
- * 真上から見る分には高さを変えても画面上の位置は変わらないため、常に置いてよい。
+ * 2Dの描画は行わない。震源は map/pointCloudLayer.ts の点群で深さ方向に配置して
+ * 描いており、地表にも同じ点を描くと二重になる。
+ *
+ * ただしレイヤーを完全に無くすとMapLibreがタイルを読み込まなくなり、
+ * querySourceFeatures で点を拾えず点群が空になる。そのため不透明度0の円を
+ * 1枚だけ置いて、ソースとタイル読み込みだけを生かしている。
+ * この円はクリック判定にも使う（ポップアップは地表側に出る）。
  */
-const DEPTH_OFFSET = ['*', ['to-number', ['get', '深さ'], 0], -1000] as ExpressionSpecification
+const LOADER_ID = `${KEY}-loader`
 
-function filterFor(eventId: string | null): FilterSpecification {
-  return ['==', ['get', '地震ID'], eventId ?? ''] as FilterSpecification
+/**
+ * 数値属性を表示用に丸める。
+ * MLTタイルの数値列は、整数値だけの列がINTとして書かれると型が混ざって
+ * エンコーダが止まるため、作る側（src/csv2geojsonseq.py の FLOAT_OFFSET）で
+ * +0.0001 して float に固定してある。ここで元の桁に戻す。
+ */
+function num(p: Record<string, unknown>, key: string, digits: number): string {
+  const v = Number(p[key])
+  return Number.isFinite(v) ? v.toFixed(digits) : ''
 }
 
+/**
+ * USGS(ANSS ComCat)の震源。1967年以降・M2.5以上・全球。
+ *
+ * M2.5で切っているのはカタログの網羅性の境目だから。これより小さい地震は
+ * 米国内の観測網が密な地域に強く偏り、全球の分布として見ると地域差が
+ * 観測網の密度を映してしまう。
+ */
 export const hypocenterLayer: LayerModule = {
   def: {
     key: KEY,
-    name: '震源（有感のみ）',
-    // 震源はMLTで配信する。3Dの点群も同じソースを使うので取得は1系統で済む。
+    name: '震源（M2.5以上）',
     format: 'mlt',
-    url: mltTileUrl('jma-earthquake'),
+    url: mltTileUrl('usgs-hypocenter'),
     minzoom: 0,
     maxzoom: 8,
     sourceLayer: 'hypocenter',
-    defaultVisible: false,
+    defaultVisible: true,
     defaultOpacity: 1,
     desc:
-      '気象庁が決定した地震の震源です。地震月報(カタログ編)の震度データに含まれる1919年〜2022年の214,763件を収録しています。選択した地震の震源を×印で表示します。'
+      'USGS(ANSS ComCat)が公開している全球の震源です。1967年以降・マグニチュード2.5以上を収録しています。'
       + '\n\n'
-      + 'ここでいう有感地震とは、いずれかの観測点で震度が観測された地震のことです。震度が観測されなかった地震は「震源（無感含む）」レイヤーに収録しています。'
+      + '色は震源の深さを表します。浅いほど暖色、深いほど寒色という地震学の慣例に従っています。0〜500kmを等間隔に塗り、500kmより深いものは端の色になります。'
       + '\n\n'
-      + '1つの地震に複数の震源レコードがある場合、1番上のレコード（代表値・採用値）のみを採用しています。震源が決定できなかった地震は座標を持たないため表示されません（124件）。'
+      + '地図を傾けると、震源が深さ方向に配置されて立体に見えます。海溝から大陸側へ向かって深くなる震源の並び、すなわち沈み込むプレートの形が世界中で確かめられます。'
       + '\n\n'
-      + '深さの決定方法は年代によって異なります。深さを固定して計算した時期があり、1926〜1960年と1967〜1982年は10km刻み、1961〜1966年は20km刻み、1983年以降は1km刻みです。ただし1982年以前の地震は適宜再調査され、深さを固定しない計算または1km刻みの震源に置き換えられています。',
+      + 'マグニチュード2.5で切っているのは、カタログの網羅性の境目だからです。これより小さい地震は米国内の観測網が密な地域に強く偏るため、全球の分布として見ると地域差が観測網の密度を映してしまいます。',
     attribution:
-      '<a href="https://www.data.jma.go.jp/eqev/data/bulletin/shindo.html" target="_blank" rel="noopener">気象庁 震源データ</a>',
+      '<a href="https://earthquake.usgs.gov/" target="_blank" rel="noopener">USGS Earthquake Hazards Program</a>',
   },
 
-  layerIds: [CROSS_ID],
-  pickLayerId: CROSS_ID,
+  layerIds: [LOADER_ID],
+  pickLayerId: LOADER_ID,
 
-  specs(ctx: PaintContext): LayerSpecification[] {
+  specs(): LayerSpecification[] {
     return [
       {
-        id: CROSS_ID,
-        type: 'symbol',
+        id: LOADER_ID,
+        type: 'circle',
         source: KEY,
         'source-layer': this.def.sourceLayer,
-        filter: filterFor(ctx.eventId),
-        layout: {
-          'text-field': '×',
-          'text-font': GLYPH_FONT,
-          // 深さ(km)ぶん地下へ下げる。maplibre 6.6.0 の symbol-height-offset は
-          // メートル単位のdata-drivenで、負値で地表より下に置ける。
-          'symbol-height-offset': DEPTH_OFFSET,
-          'text-size': ['interpolate', ['linear'], ['zoom'], 4, 28, 10, 50],
-          'text-allow-overlap': true,
-          'text-ignore-placement': true,
-        },
-        paint: {
-          'text-color': CROSS_COLOR,
-          'text-halo-color': HALO_COLOR,
-          'text-halo-width': 2,
-          'text-opacity': ctx.opacity,
-        },
+        paint: { 'circle-radius': 3, 'circle-opacity': 0 },
       } as LayerSpecification,
     ]
   },
 
-  paintUpdates(ctx: PaintContext) {
-    return [{ id: CROSS_ID, prop: 'text-opacity', value: ctx.opacity }]
+  // 見た目は点群側が持つ。2Dには反映するものがない。
+  paintUpdates() {
+    return []
   },
 
-
-  filters(ctx: RenderContext) {
-    return [{ id: CROSS_ID, filter: filterFor(ctx.eventId) }]
+  filters() {
+    // 分布そのものを見るためのレイヤーなので絞らない
+    return [{ id: LOADER_ID, filter: null }]
   },
 
   legend() {
-    // 地図には×印を出しているので、見本も×にする。丸だと別の記号に見える。
-    return {
-      kind: 'items',
-      items: [{ color: CROSS_COLOR, label: '震源', shape: 'cross', haloColor: HALO_COLOR }],
-    }
+    return { kind: 'gradient', css: depthLegendCss(), ticks: depthLegendTicks() }
   },
 
   popupHtml(p, lng, lat) {
-    // MLT側の属性名は変換時に短くしてある
-    const magnitude = prop(p, 'マグニチュード') || prop(p, 'マグニチュード1')
+    // 列名は FDSN の CSV に合わせてある（src/build_mlt_tiles.sh の --keep を参照）
     const rows =
-      row('発生時刻', prop(p, 'DateTime'), true) +
-      row('マグニチュード', magnitude) +
-      row('深さ(km)', prop(p, '深さ') || prop(p, '深さ(km)')) +
-      row('最大震度', prop(p, '最大震度')) +
-      row('観測点数', prop(p, '観測点数')) +
-      row('地震ID', prop(p, '地震ID'))
+      row('発生時刻(UTC)', prop(p, 'time'), true) +
+      row('深さ(km)', num(p, 'depth', 2)) +
+      row('マグニチュード', `${num(p, 'mag', 1)}${prop(p, 'magType') ? ` (${prop(p, 'magType')})` : ''}`) +
+      row('イベントID', prop(p, 'id'))
+    const id = prop(p, 'id')
+    const link = id
+      ? `<div class="pp-foot"><a href="https://earthquake.usgs.gov/earthquakes/eventpage/${esc(id)}" target="_blank" rel="noopener">USGSのイベントページ</a></div>`
+      : ''
     return (
-      `<div class="pp-title">${esc(prop(p, '震央地名') || this.def.name)}</div>` +
+      `<div class="pp-title">${esc(prop(p, 'place') || this.def.name)}</div>` +
       `<div class="pp-sub">${esc(this.def.name)}</div>` +
       (rows ? `<dl class="pp-dl">${rows}</dl>` : '') +
-      coordFooter(lng, lat)
+      coordFooter(lng, lat) +
+      link
     )
   },
 }
