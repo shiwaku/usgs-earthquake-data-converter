@@ -145,6 +145,25 @@ export class PointCloudLayer implements CustomLayerInterface {
     this.gl = gl
     this.buffer = gl.createBuffer()
     this.vao = gl.createVertexArray()
+
+    /*
+     * 背景地図やテーマを切り替えるとスタイルが作り直され、このレイヤーも
+     * 載せ直される。**そのとき onRemove が呼ばれるとは限らない**（実測では
+     * 呼ばれなかった）。上でバッファとVAOを新しく作っているので、
+     *
+     *   - バッファは空 → 持っている点を入れ直す（dirty）
+     *   - VAOは属性の割り当てが未設定 → プログラムを作り直させて設定させる
+     *
+     * 属性の割り当ては ensureProgram の中でしか行っていない。プログラムが
+     * 生き残っていると ensureProgram は素通りするため、割り当てのないVAOで
+     * 描くことになり、**エラーも出ないまま何も描かれない**。
+     * 背景地図を切り替えると震源が消えるのがこれだった。
+     */
+    this.dirty = true
+    if (this.program) gl.deleteProgram(this.program)
+    this.program = null
+    this.variant = ''
+    this.uniforms = {}
   }
 
   onRemove(_map: MapLibreMap, gl: WebGL2RenderingContext): void {
@@ -361,6 +380,12 @@ export class PointCloudLayer implements CustomLayerInterface {
     // 地下の点まで見せたいので深度テストはしない。重なりの濃さで密度を見せる。
     gl.disable(gl.DEPTH_TEST)
     gl.depthMask(false)
+    // MapLibreが直前のレイヤーで残した状態を落とす。とくに stencil はタイルの
+    // 切り抜きに使われており、残っていると点が丸ごと捨てられる。
+    // 背景をラスタのスタイル（衛星画像）へ切り替えたときに実際に踏んだ。
+    gl.disable(gl.STENCIL_TEST)
+    gl.disable(gl.SCISSOR_TEST)
+    gl.disable(gl.CULL_FACE)
     gl.enable(gl.BLEND)
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
 

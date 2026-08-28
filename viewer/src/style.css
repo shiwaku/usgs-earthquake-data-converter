@@ -13,8 +13,12 @@
   --shadow: 0 10px 30px -10px rgba(16, 24, 40, 0.35), 0 2px 8px -4px rgba(16, 24, 40, 0.2);
   --radius: 16px;
   --radius-sm: 10px;
-  /* 下端に常設する「地震の選択」バーの高さ。地図コントロールをこの分だけ持ち上げる。 */
-  --timebar-h: 64px;
+  /*
+   * 下端に持ち上げる量。姉妹リポジトリ（日本域）は「地震の選択」バーを下端に
+   * 常設しており、その高さぶん地図コントロールを上げていた。
+   * 全球版にそのバーは無いので0。下端に寄せる要素はすべてこれを見ている。
+   */
+  --timebar-h: 0px;
   color-scheme: light;
 }
 
@@ -1054,14 +1058,6 @@ body.panel-collapsed .depth-legend {
   color: var(--accent-ink);
 }
 
-/* 地震の検索バーを出していないときは持ち上げる必要がない。
-   下端に寄せる要素はすべて --timebar-h を見ているので、ここを0にすれば
-   地図コントロール（背景地図の切替・縮尺・アトリビューション）も
-   深さの凡例もまとめて下がる。 */
-body.no-eventbar {
-  --timebar-h: 0px;
-}
-
 /* ---- MapLibre コントロールの馴染ませ ---- */
 /* 下端の常設タイムバーに重ならないよう、下寄せのコントロールを持ち上げる */
 .maplibregl-ctrl-bottom-right,
@@ -1104,11 +1100,6 @@ body.no-eventbar {
 }
 
 @media (max-width: 640px) {
-  :root {
-    /* 選択中の地震と検索欄が縦に積まれるぶん高くする */
-    --timebar-h: 96px;
-  }
-
   .eventbar {
     flex-direction: column;
     align-items: stretch;
