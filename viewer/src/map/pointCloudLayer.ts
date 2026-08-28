@@ -37,8 +37,17 @@ in float a_elevation;
 in vec4 a_color;
 uniform float u_size;
 out vec4 v_color;
+out vec4 v_pick;
 
 void main() {
+  // ピッキング用の色。頂点の番号を24bitに詰める。0は「当たりなし」に使うので+1する
+  uint pid = uint(gl_VertexID) + 1u;
+  v_pick = vec4(
+    float(pid & 255u) / 255.0,
+    float((pid >> 8) & 255u) / 255.0,
+    float((pid >> 16) & 255u) / 255.0,
+    1.0);
+
 #ifdef GLOBE
   // 3D経路（projectTileFor3D）は球の裏側を落としてくれない。
   // 2D経路が深度で行っているクリップを、ここでは頂点を画面外へ飛ばして代用する。
@@ -48,6 +57,7 @@ void main() {
     gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
     gl_PointSize = 0.0;
     v_color = vec4(0.0);
+    v_pick = vec4(0.0);
     return;
   }
 #endif
@@ -60,13 +70,19 @@ void main() {
 const FRAGMENT_SOURCE = `#version 300 es
 precision highp float;
 in vec4 v_color;
+in vec4 v_pick;
 uniform float u_opacity;
+uniform bool u_picking;
 out vec4 fragColor;
 
 void main() {
   // 四角い点は目立ちすぎるので丸く落とす
   vec2 d = gl_PointCoord - vec2(0.5);
   if (dot(d, d) > 0.25) discard;
+  if (u_picking) {
+    fragColor = v_pick;
+    return;
+  }
   float a = v_color.a * u_opacity;
   // MapLibreのキャンバスは乗算済みアルファ
   fragColor = vec4(v_color.rgb * a, a);
@@ -100,6 +116,13 @@ export class PointCloudLayer implements CustomLayerInterface {
   readonly renderingMode = '3d' as const
 
   private map: MapLibreMap | null = null
+  private gl: WebGL2RenderingContext | null = null
+  /** 直近の描画で渡された投影データ。クリック判定のときに使い回す。 */
+  private lastInput: CustomRenderMethodInput | null = null
+  private pickFbo: WebGLFramebuffer | null = null
+  private pickTexture: WebGLTexture | null = null
+  private pickWidth = 0
+  private pickHeight = 0
   private program: WebGLProgram | null = null
   /** 投影が変わるとpreludeも変わる。作り直しの判断に使う。 */
   private variant = ''
@@ -117,6 +140,7 @@ export class PointCloudLayer implements CustomLayerInterface {
 
   onAdd(map: MapLibreMap, gl: WebGL2RenderingContext): void {
     this.map = map
+    this.gl = gl
     this.buffer = gl.createBuffer()
     this.vao = gl.createVertexArray()
   }
@@ -125,6 +149,13 @@ export class PointCloudLayer implements CustomLayerInterface {
     if (this.program) gl.deleteProgram(this.program)
     if (this.buffer) gl.deleteBuffer(this.buffer)
     if (this.vao) gl.deleteVertexArray(this.vao)
+    if (this.pickFbo) gl.deleteFramebuffer(this.pickFbo)
+    if (this.pickTexture) gl.deleteTexture(this.pickTexture)
+    this.pickFbo = null
+    this.pickTexture = null
+    this.pickWidth = 0
+    this.pickHeight = 0
+    this.lastInput = null
     this.program = null
     this.buffer = null
     this.vao = null
@@ -204,10 +235,108 @@ export class PointCloudLayer implements CustomLayerInterface {
     }
   }
 
+  /**
+   * 画面座標にある点の番号（setPointsで渡した並びの何番目か）を返す。当たらなければ null。
+   *
+   * GPUに描かせて読み戻す。点は最大百万件あり、JS側で1点ずつ投影して探すのは重い。
+   * それに、globeでの投影は MapLibre のシェーダの中にしかない。同じシェーダに
+   * 番号を色として描かせ、クリック位置の画素を読むのが素直で正確。
+   *
+   * 投影データは直近の描画で渡されたものを使い回す。クリックの瞬間は地図が
+   * 止まっているので、1フレーム前の行列で問題ない。
+   */
+  pick(x: number, y: number, radius = 5): number | null {
+    const gl = this.gl
+    const input = this.lastInput
+    const canvas = this.map?.getCanvas()
+    if (!gl || !input || !canvas || !this.count) return null
+
+    const width = canvas.width
+    const height = canvas.height
+    const program = this.ensureProgram(gl, input)
+
+    if (!this.pickFbo || this.pickWidth !== width || this.pickHeight !== height) {
+      if (this.pickFbo) gl.deleteFramebuffer(this.pickFbo)
+      if (this.pickTexture) gl.deleteTexture(this.pickTexture)
+      this.pickTexture = gl.createTexture()
+      gl.bindTexture(gl.TEXTURE_2D, this.pickTexture)
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+      this.pickFbo = gl.createFramebuffer()
+      gl.bindFramebuffer(gl.FRAMEBUFFER, this.pickFbo)
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.pickTexture, 0)
+      this.pickWidth = width
+      this.pickHeight = height
+    } else {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, this.pickFbo)
+    }
+
+    const ratio = width / (canvas.clientWidth || 1)
+    gl.viewport(0, 0, width, height)
+    gl.clearColor(0, 0, 0, 0)
+    gl.clear(gl.COLOR_BUFFER_BIT)
+    gl.useProgram(program)
+    if (this.dirty) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer)
+      gl.bufferData(gl.ARRAY_BUFFER, this.data, gl.STATIC_DRAW)
+      this.dirty = false
+    }
+    this.setProjectionUniforms(gl, program, input)
+    gl.uniform1i(gl.getUniformLocation(program, 'u_picking'), 1)
+    // 点は小さいので、当たり判定のときだけ大きく描く
+    gl.uniform1f(gl.getUniformLocation(program, 'u_size'), (this.size + 4) * ratio)
+    gl.disable(gl.BLEND)
+    gl.disable(gl.DEPTH_TEST)
+    gl.bindVertexArray(this.vao)
+    gl.drawArrays(gl.POINTS, 0, this.count)
+    gl.bindVertexArray(null)
+
+    // WebGLのYは下から上。読み取りは画面外へはみ出さないように詰める
+    const r = Math.round(radius * ratio)
+    const px = Math.round(x * ratio)
+    const py = Math.round(height - y * ratio)
+    const x0 = Math.max(0, px - r)
+    const y0 = Math.max(0, py - r)
+    const w = Math.min(width, px + r + 1) - x0
+    const h = Math.min(height, py + r + 1) - y0
+    let found: number | null = null
+    if (w > 0 && h > 0) {
+      const pixels = new Uint8Array(w * h * 4)
+      gl.readPixels(x0, y0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels)
+      // クリック位置にいちばん近い当たりを採る
+      let best = Infinity
+      for (let j = 0; j < h; j++) {
+        for (let i = 0; i < w; i++) {
+          const o = (j * w + i) * 4
+          if (pixels[o + 3] === 0) continue
+          const id = pixels[o] | (pixels[o + 1] << 8) | (pixels[o + 2] << 16)
+          if (id === 0) continue
+          const dx = x0 + i - px
+          const dy = y0 + j - py
+          const d = dx * dx + dy * dy
+          if (d < best) {
+            best = d
+            found = id - 1
+          }
+        }
+      }
+    }
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+    gl.viewport(0, 0, width, height)
+    // 次のフレームで地図を描き直させる（描画状態を触ったため）
+    this.map?.triggerRepaint()
+    return found
+  }
+
   render(gl: WebGL2RenderingContext, input: CustomRenderMethodInput): void {
+    this.gl = gl
+    this.lastInput = input
     if (!this.count) return
     const program = this.ensureProgram(gl, input)
     gl.useProgram(program)
+    gl.uniform1i(gl.getUniformLocation(program, 'u_picking'), 0)
 
     if (this.dirty) {
       gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer)

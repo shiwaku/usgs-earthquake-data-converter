@@ -2,7 +2,7 @@ import { MercatorCoordinate, type Map as MapLibreMap } from 'maplibre-gl'
 
 import { depthColor } from './layers/depthScale'
 import { PointCloudLayer, type PointCloudPoint } from './pointCloudLayer'
-import type { AppStore } from '../state'
+import type { AppStore, Selection } from '../state'
 
 /**
  * 震源を深さで立体表示する。
@@ -34,11 +34,21 @@ function featureKey(p: Record<string, unknown>): string {
   return String(p['id'] ?? '')
 }
 
-export function createHypocenter3d(map: MapLibreMap, store: AppStore): void {
+/** 立体表示の点を画面座標で拾う口。クリック処理（map/interactions.ts）が使う。 */
+export interface Hypocenter3dPicker {
+  /** その位置に点があるか。カーソル形状の判定に使う。 */
+  hitTest(x: number, y: number): boolean
+  /** その位置の点を属性ごと拾う。当たらなければ null。 */
+  pick(x: number, y: number): Selection | null
+}
+
+export function createHypocenter3d(map: MapLibreMap, store: AppStore): Hypocenter3dPicker {
   const layer = new PointCloudLayer(LAYER_ID)
   // querySourceFeatures はタイルのロード・アンロードで返る集合が変動する。
   // 取得したものを加算キャッシュして削除しないことで、点の明滅を防ぐ。
   const cache = new Map<string, CachedPoint>()
+  // GPUへ上げた並び。ピッキングが返す番号をこれで点に戻す。
+  let order: CachedPoint[] = []
   let pending = false
   let added = false
 
@@ -89,6 +99,7 @@ export function createHypocenter3d(map: MapLibreMap, store: AppStore): void {
     // 不透明度はレイヤーパネルの値。点の重なりで密度を見せるので上限を抑える。
     const state = layers[SOURCES[0][0]]
     layer.opacity = (state?.opacity ?? 1) * BASE_OPACITY
+    order = visible
     layer.setPoints(visible, visible.length)
   }
 
@@ -105,7 +116,24 @@ export function createHypocenter3d(map: MapLibreMap, store: AppStore): void {
 
   function disable(): void {
     cache.clear()
+    order = []
     layer.setPoints([], 0)
+  }
+
+  /**
+   * 拾った点に対応する地物の属性。
+   * 点群は表示に要る値しか持たない（全点ぶんの属性を抱えるとメモリを食う）ため、
+   * 拾えたときだけソースから引き直す。
+   */
+  function propertiesOf(point: CachedPoint): Record<string, unknown> | null {
+    const entry = SOURCES.find(([source]) => source === point.source)
+    if (!entry || !map.getSource(point.source)) return null
+    const feats = map.querySourceFeatures(point.source, {
+      sourceLayer: entry[1],
+      filter: ['==', ['to-string', ['get', 'id']], point.id],
+    })
+    const hit = feats[0]
+    return hit ? ((hit.properties ?? {}) as Record<string, unknown>) : null
   }
 
   function onSourceData(e: { sourceId?: string; sourceDataType?: string }): void {
@@ -139,6 +167,33 @@ export function createHypocenter3d(map: MapLibreMap, store: AppStore): void {
   if (store.get().depth3d) {
     if (map.isStyleLoaded()) enable()
     else map.once('load', enable)
+  }
+
+  function pickPoint(x: number, y: number): CachedPoint | null {
+    if (!store.get().depth3d) return null
+    const index = layer.pick(x, y)
+    return index === null ? null : (order[index] ?? null)
+  }
+
+  return {
+    hitTest: (x, y) => pickPoint(x, y) !== null,
+
+    pick(x, y) {
+      const point = pickPoint(x, y)
+      if (!point) return null
+      const properties = propertiesOf(point)
+      // タイルが入れ替わって元の地物が引けないことがある
+      if (!properties) return null
+      // 点はメルカトルで持っている。ポップアップは緯度経度で置くので戻す
+      const coord = new MercatorCoordinate(point.x, point.y, 0).toLngLat()
+      return {
+        layerKey: point.source,
+        properties,
+        lng: coord.lng,
+        lat: coord.lat,
+        altitude: point.elevation,
+      }
+    },
   }
 }
 
