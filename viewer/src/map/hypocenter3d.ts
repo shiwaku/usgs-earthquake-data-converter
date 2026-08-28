@@ -104,6 +104,15 @@ export function createHypocenter3d(map: MapLibreMap, store: AppStore): Hypocente
     upload()
   }
 
+  /** ズームに応じた濃さ・大きさを点群へ渡す。 */
+  function applyRamp(): void {
+    const state = store.get().layers[SOURCES[0][0]]
+    const ramp = rampFor(map.getZoom())
+    // レイヤーパネルのスライダー値を掛ける
+    layer.opacity = (state?.opacity ?? 1) * ramp.opacity
+    layer.size = ramp.size
+  }
+
   function schedule(): void {
     if (pending) return
     pending = true
@@ -117,10 +126,8 @@ export function createHypocenter3d(map: MapLibreMap, store: AppStore): Hypocente
     for (const point of cache.values()) {
       if (layers[point.source]?.visible) visible.push(point)
     }
-    // 不透明度はレイヤーパネルの値。点の重なりで密度を見せるので上限を抑える。
-    const state = layers[SOURCES[0][0]]
-    layer.opacity = (state?.opacity ?? 1) * BASE_OPACITY
     order = visible
+    applyRamp()
     layer.setPoints(visible, visible.length)
   }
 
@@ -130,6 +137,8 @@ export function createHypocenter3d(map: MapLibreMap, store: AppStore): Hypocente
       map.addLayer(layer)
       map.on('sourcedata', onSourceData)
       map.on('moveend', schedule)
+      // ズームで濃さが変わる。動かしている最中も追従させる
+      map.on('zoom', applyRamp)
       added = true
     }
     schedule()
@@ -219,8 +228,22 @@ export function createHypocenter3d(map: MapLibreMap, store: AppStore): Hypocente
 }
 
 /**
- * 点の重ね合わせで密度を見せるための基準不透明度。
- * レイヤーパネルのスライダー値にこれを掛ける。濃くすると点が一枚の塊になって
- * 深さが読めなくなるため、上限をここで抑える。
+ * 点の濃さと大きさはズームで変える。
+ *
+ * タイルは低ズームほど強く間引かれる（tippecanoe の --drop-densest-as-needed）。
+ * 引いた絵では点が少ないので、濃さを上げないと震源の並びが読めない。
+ * 逆に寄ると点が一気に増え、濃いままだと重なって一枚の塊になり深さが読めなくなる。
+ *
+ * 実測: 全球版の初期表示（z1.6）は全世界で1,712点しかない。ここを0.25で描くと
+ * ほとんど見えない。z10まで寄ると数十万点になるので、そこは薄くする。
  */
-const BASE_OPACITY = 0.25
+const RAMP = { minZoom: 4, maxZoom: 7, opacityNear: 0.25, opacityFar: 0.9, sizeNear: 2, sizeFar: 3 }
+
+/** ズームから濃さと大きさを求める。低ズーム側で濃く・大きく。 */
+function rampFor(zoom: number): { opacity: number; size: number } {
+  const t = Math.min(1, Math.max(0, (zoom - RAMP.minZoom) / (RAMP.maxZoom - RAMP.minZoom)))
+  return {
+    opacity: RAMP.opacityFar + (RAMP.opacityNear - RAMP.opacityFar) * t,
+    size: RAMP.sizeFar + (RAMP.sizeNear - RAMP.sizeFar) * t,
+  }
+}
