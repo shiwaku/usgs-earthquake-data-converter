@@ -104,13 +104,11 @@ export function createHypocenter3d(map: MapLibreMap, store: AppStore): Hypocente
     upload()
   }
 
-  /** ズームに応じた濃さ・大きさを点群へ渡す。 */
+  /** レイヤーパネルのスライダー値を点群へ渡す。 */
   function applyRamp(): void {
     const state = store.get().layers[SOURCES[0][0]]
-    const ramp = rampFor(map.getZoom())
-    // レイヤーパネルのスライダー値を掛ける
-    layer.opacity = (state?.opacity ?? 1) * ramp.opacity
-    layer.size = ramp.size
+    layer.opacity = (state?.opacity ?? 1) * BASE_OPACITY
+    layer.size = POINT_SIZE
   }
 
   function schedule(): void {
@@ -131,16 +129,18 @@ export function createHypocenter3d(map: MapLibreMap, store: AppStore): Hypocente
     layer.setPoints(visible, visible.length)
   }
 
+  // 地図側の購読は一度だけ。enable() はスタイルの作り直しのたびに呼ばれるので、
+  // ここに置くと呼ぶたびにリスナーが増える。
+  map.on('sourcedata', onSourceData)
+  map.on('moveend', schedule)
+
   function enable(): void {
     if (!added) {
       // データ層の上に置く。地図の一番手前で描く
       map.addLayer(layer)
-      map.on('sourcedata', onSourceData)
-      map.on('moveend', schedule)
-      // ズームで濃さが変わる。動かしている最中も追従させる
-      map.on('zoom', applyRamp)
       added = true
     }
+    applyRamp()
     schedule()
   }
 
@@ -228,22 +228,15 @@ export function createHypocenter3d(map: MapLibreMap, store: AppStore): Hypocente
 }
 
 /**
- * 点の濃さと大きさはズームで変える。
+ * 点の濃さと大きさ。**ズームでは変えない。**
  *
- * タイルは低ズームほど強く間引かれる（tippecanoe の --drop-densest-as-needed）。
- * 引いた絵では点が少ないので、濃さを上げないと震源の並びが読めない。
- * 逆に寄ると点が一気に増え、濃いままだと重なって一枚の塊になり深さが読めなくなる。
+ * 一度ズーム連動にしたが、それは「引くほど点が少ない」という誤った前提だった。
+ * 実測すると、画面あたりの点の密度はズームでほとんど変わらない（z1.6で1,650点/百万px、z7で3,789、z9で1,111）。
+ * tippecanoe の間引き（--drop-densest-as-needed）がタイルあたりの地物数を
+ * 揃えるように働くため、画面密度もおおむね一定になる。
  *
- * 実測: 全球版の初期表示（z1.6）は全世界で1,712点しかない。ここを0.25で描くと
- * ほとんど見えない。z10まで寄ると数十万点になるので、そこは薄くする。
+ * 元の 0.25 はこの密度に対して薄すぎ、引いた絵でも寄った絵でも点が見えなかった。
+ * データの密度に合わせた一定値にする。
  */
-const RAMP = { minZoom: 4, maxZoom: 7, opacityNear: 0.25, opacityFar: 0.9, sizeNear: 2, sizeFar: 3 }
-
-/** ズームから濃さと大きさを求める。低ズーム側で濃く・大きく。 */
-function rampFor(zoom: number): { opacity: number; size: number } {
-  const t = Math.min(1, Math.max(0, (zoom - RAMP.minZoom) / (RAMP.maxZoom - RAMP.minZoom)))
-  return {
-    opacity: RAMP.opacityFar + (RAMP.opacityNear - RAMP.opacityFar) * t,
-    size: RAMP.sizeFar + (RAMP.sizeNear - RAMP.sizeFar) * t,
-  }
-}
+const BASE_OPACITY = 0.8
+const POINT_SIZE = 2.5
