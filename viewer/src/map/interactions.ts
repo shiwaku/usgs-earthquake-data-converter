@@ -17,13 +17,14 @@ export function createInteractions(map: MapLibreMap, store: AppStore, picker: Hy
   // ホバーのカーソルはマウス環境だけ。タッチでは意味がないうえ、
   // mousemove がタップのたびに走ってしまう。
   if (window.matchMedia('(hover: hover)').matches) {
-    // 立体表示の当たり判定は GPU からの読み戻しを伴うため、mousemove のたびに
-    // 走らせると重い。最後の位置だけを覚えて1フレームに1回へ間引く。
-    let queued = false
+    // 立体表示の当たり判定は点群を丸ごと描いて読み戻すため、50万点で1回8msかかる。
+    // mousemove のたび、あるいは毎フレーム走らせるには重すぎる。
+    // カーソルが止まってから1回だけ見る。動かしている最中は判定しない。
+    const SETTLE_MS = 120
+    let timer: number | undefined
     let last: Point | null = null
 
     function updateCursor(): void {
-      queued = false
       if (!last) return
       const ids = activePickIds(map, store.get())
       const hit =
@@ -34,9 +35,9 @@ export function createInteractions(map: MapLibreMap, store: AppStore, picker: Hy
 
     map.on('mousemove', (e) => {
       last = e.point
-      if (queued) return
-      queued = true
-      requestAnimationFrame(updateCursor)
+      // 動かしている間は前の判定結果のカーソルのままにする
+      clearTimeout(timer)
+      timer = window.setTimeout(updateCursor, SETTLE_MS)
     })
   }
 

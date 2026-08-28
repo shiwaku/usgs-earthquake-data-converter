@@ -124,6 +124,8 @@ export class PointCloudLayer implements CustomLayerInterface {
   private pickWidth = 0
   private pickHeight = 0
   private program: WebGLProgram | null = null
+  /** ユニフォームの位置。getUniformLocation は毎フレーム引くには重い。 */
+  private uniforms: Record<string, WebGLUniformLocation | null> = {}
   /** 投影が変わるとpreludeも変わる。作り直しの判断に使う。 */
   private variant = ''
   private buffer: WebGLBuffer | null = null
@@ -200,6 +202,11 @@ export class PointCloudLayer implements CustomLayerInterface {
     }
     this.program = program
     this.variant = input.shaderData.variantName
+    this.uniforms = {}
+    for (const name of [...PROJECTION_UNIFORMS, 'u_size', 'u_opacity', 'u_picking']) {
+      // preludeが使っていないユニフォームはリンク時に消えるのでnullになる
+      this.uniforms[name] = gl.getUniformLocation(program, name)
+    }
 
     // 属性の割り当てはプログラムごとに決まるので、VAOもここで組み直す
     gl.bindVertexArray(this.vao)
@@ -217,15 +224,10 @@ export class PointCloudLayer implements CustomLayerInterface {
     return program
   }
 
-  private setProjectionUniforms(
-    gl: WebGL2RenderingContext,
-    program: WebGLProgram,
-    input: CustomRenderMethodInput,
-  ): void {
+  private setProjectionUniforms(gl: WebGL2RenderingContext, input: CustomRenderMethodInput): void {
     const p = input.defaultProjectionData
     for (const name of PROJECTION_UNIFORMS) {
-      const location = gl.getUniformLocation(program, name)
-      // preludeが使っていないユニフォームはリンク時に消えるのでnullになる
+      const location = this.uniforms[name]
       if (!location) continue
       if (name === 'u_projection_matrix') gl.uniformMatrix4fv(location, false, p.mainMatrix)
       else if (name === 'u_projection_fallback_matrix') gl.uniformMatrix4fv(location, false, p.fallbackMatrix)
@@ -282,10 +284,10 @@ export class PointCloudLayer implements CustomLayerInterface {
       gl.bufferData(gl.ARRAY_BUFFER, this.data, gl.STATIC_DRAW)
       this.dirty = false
     }
-    this.setProjectionUniforms(gl, program, input)
-    gl.uniform1i(gl.getUniformLocation(program, 'u_picking'), 1)
+    this.setProjectionUniforms(gl, input)
+    gl.uniform1i(this.uniforms['u_picking'], 1)
     // 点は小さいので、当たり判定のときだけ大きく描く
-    gl.uniform1f(gl.getUniformLocation(program, 'u_size'), (this.size + 4) * ratio)
+    gl.uniform1f(this.uniforms['u_size'], (this.size + 4) * ratio)
     // MapLibreが直前の描画で残した状態を明示的に落とす。とくに scissor と stencil は
     // タイルの切り抜きに使われており、そのままだと描いた点が丸ごと捨てられる。
     gl.disable(gl.BLEND)
@@ -331,8 +333,8 @@ export class PointCloudLayer implements CustomLayerInterface {
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, null)
     gl.viewport(0, 0, width, height)
-    // 次のフレームで地図を描き直させる（描画状態を触ったため）
-    this.map?.triggerRepaint()
+    // 画面のフレームバッファは触っていないので再描画は要らない。
+    // ここで triggerRepaint すると、カーソルを動かしている間ずっと描き直し続ける。
     return found
   }
 
@@ -342,7 +344,7 @@ export class PointCloudLayer implements CustomLayerInterface {
     if (!this.count) return
     const program = this.ensureProgram(gl, input)
     gl.useProgram(program)
-    gl.uniform1i(gl.getUniformLocation(program, 'u_picking'), 0)
+    gl.uniform1i(this.uniforms['u_picking'], 0)
 
     if (this.dirty) {
       gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer)
@@ -350,11 +352,11 @@ export class PointCloudLayer implements CustomLayerInterface {
       this.dirty = false
     }
 
-    this.setProjectionUniforms(gl, program, input)
+    this.setProjectionUniforms(gl, input)
     const canvas = this.map?.getCanvas()
     const pixelRatio = canvas ? canvas.width / (canvas.clientWidth || 1) : 1
-    gl.uniform1f(gl.getUniformLocation(program, 'u_size'), this.size * pixelRatio)
-    gl.uniform1f(gl.getUniformLocation(program, 'u_opacity'), this.opacity)
+    gl.uniform1f(this.uniforms['u_size'], this.size * pixelRatio)
+    gl.uniform1f(this.uniforms['u_opacity'], this.opacity)
 
     // 地下の点まで見せたいので深度テストはしない。重なりの濃さで密度を見せる。
     gl.disable(gl.DEPTH_TEST)

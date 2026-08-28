@@ -14,6 +14,18 @@ import type { AppStore, Selection } from '../state'
  * 理由はそちらに書いてある。要は globe で傾けると deck.gl の点が地図から外れるため。
  */
 
+/**
+ * 点群に載せる点の上限。
+ *
+ * キャッシュは消さない設計（タイルの出入りで点が明滅するのを防ぐため）だが、
+ * 消さないままだと触っているほど増え続け、setPoints の詰め直しも重くなる。
+ * 上限を超えたら**拾った順に古いものから捨てる**。Mapは挿入順を保つのでそのまま使える。
+ *
+ * 50万点で詰め直し4.5ms・当たり判定8.3ms（ソフトウェアGL実測）。
+ * 通常の閲覧で載る点は数万なので、長く触ったときだけ効く。
+ */
+const MAX_POINTS = 300_000
+
 /** 点群のソース。レイヤーキーとMLTのsource-layer名。 */
 const SOURCES: [string, string][] = [['hypocenter', 'hypocenter']]
 
@@ -80,7 +92,16 @@ export function createHypocenter3d(map: MapLibreMap, store: AppStore): Hypocente
         grew = true
       }
     }
-    if (grew) upload()
+    if (!grew) return
+    // 増えすぎたら古いものから捨てる
+    if (cache.size > MAX_POINTS) {
+      let over = cache.size - MAX_POINTS
+      for (const key of cache.keys()) {
+        cache.delete(key)
+        if (--over <= 0) break
+      }
+    }
+    upload()
   }
 
   function schedule(): void {
