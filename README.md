@@ -45,6 +45,41 @@ python src/usgs_csv_merge.py work/raw work/earthquakes.csv
 bash src/build_mlt_tiles.sh work/earthquakes.csv work/mlt
 ```
 
+## 配信
+
+タイルは Cloudflare R2 に置いています。
+
+| データ | URL | ズーム |
+|---|---|---|
+| 震源（M2.5以上） | `https://shi-works.com/mlt/usgs-hypocenter/{z}/{x}/{y}.mlt` | 0〜8 |
+
+配信元は `viewer/.env` の `VITE_PMTILES_BASE` で切り替えられます。
+
+## ビューワ（`viewer/`）
+
+Vite + TypeScript + MapLibre GL JS 6 で構築しています。**地球儀（globe）表示**で、傾けると震源が深さ方向に配置されて立体に見えます。
+
+### deck.gl を使っていません
+
+姉妹リポジトリ（日本域）は震源の点群を deck.gl で描いていますが、全球版では使えませんでした。
+
+`@deck.gl/mapbox` は globe 投影のとき `_GlobeView` に切り替わりますが、その `GlobeViewState` には **pitch も bearing もありません**。地図は傾いて描かれ、deck.gl は真上から描くので、傾けた瞬間に点が地図から外れます。
+
+代わりに MapLibre が custom layer 向けに公開している `projectTileFor3D` を使っています（`viewer/src/map/pointCloudLayer.ts`）。globe でもメルカトルでも、標高付きの位置を地図と同じ式で投影します。globe では球（半径 6371008.8m）からの標高(m)として扱われるので、深さは負の標高としてそのまま渡せます。
+
+> [!NOTE]
+> 3D経路（`projectTileFor3D`）は球の裏側をクリップしません。2D経路（`projectTile`）が深度を上書きして行っているクリップを、こちらでは `u_projection_clipping_plane` を使って頂点側で落としています。
+
+クリック判定は**GPUピッキング**です。同じシェーダに頂点番号を色として描かせ、クリック位置の画素を読み戻します。点は最大百万件あり、JS側で1点ずつ投影して探すのは重いうえ、globe の投影式は MapLibre のシェーダの中にしかないためです。
+
+### 背景地図
+
+- 地図: [OpenFreeMap](https://openfreemap.org/)（`positron` / `dark`）
+- 衛星: Esri World Imagery
+
+> [!WARNING]
+> CARTO のラスタ（`basemaps.cartocdn.com`）は鍵が要るようになっていて、タイルに「API KEY REQUIRED」が焼き込まれて返ります。使えません。
+
 ## 列
 
 FDSNのCSVをそのまま持ちます。
